@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>장애물 피하기</title>
+<style>
+*{box-sizing:border-box}
+body{
+  margin:0;
+  min-height:100vh;
+  display:flex;
+  justify-content:center;
+  align-items:center;
+  background:#111827;
+  color:#f3f4f6;
+  font-family:Arial,sans-serif;
+}
+.game{
+  width:min(640px,94vw);
+  overflow:hidden;
+  border:1px solid #374151;
+  border-radius:18px;
+  background:#1f2937;
+  user-select:none;
+}
+.hud{
+  display:flex;
+  justify-content:space-between;
+  padding:14px 18px;
+  border-bottom:1px solid #374151;
+  font-weight:700;
+}
+.arena{
+  position:relative;
+  height:360px;
+  overflow:hidden;
+  background:linear-gradient(180deg,#101827,#172033);
+}
+.player{
+  position:absolute;
+  width:42px;
+  height:42px;
+  border-radius:10px;
+  background:#60a5fa;
+  bottom:18px;
+  left:calc(50% - 21px);
+}
+.enemy{
+  position:absolute;
+  width:34px;
+  height:34px;
+  border-radius:8px;
+  background:#e7e7e7;
+}
+.message{
+  position:absolute;
+  inset:0;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  text-align:center;
+  font-weight:800;
+  font-size:22px;
+  background:rgba(0,0,0,.35);
+}
+.controls{
+  display:flex;
+  gap:10px;
+  align-items:center;
+  justify-content:center;
+  padding:14px;
+  flex-wrap:wrap;
+}
+button{
+  min-width:110px;
+  min-height:44px;
+  border:1px solid #4b5563;
+  border-radius:10px;
+  padding:8px 16px;
+  background:#374151;
+  color:#f9fafb;
+  font-weight:700;
+  cursor:pointer;
+}
+button:hover{background:#4b5563}
+.hint{
+  text-align:center;
+  color:#9ca3af;
+  font-size:14px;
+  padding:0 12px 14px;
+}
+</style>
+</head>
+<body>
+
+<div class="game" id="dodgeGame">
+  <div class="hud">
+    <span>🏆 점수 <strong id="score">0</strong></span>
+    <span>🔥 최고 <strong id="best">0</strong></span>
+  </div>
+
+  <div class="arena" id="arena">
+    <div class="player" id="player"></div>
+    <div class="message" id="message">START를 눌러 시작!</div>
+  </div>
+
+  <div class="controls">
+    <button type="button" id="left">◀ 왼쪽</button>
+    <button type="button" id="start">START</button>
+    <button type="button" id="right">오른쪽 ▶</button>
+  </div>
+
+  <div class="hint">
+    키보드 ← → 또는 A / D 로 이동 · 장애물에 닿으면 게임 오버
+  </div>
+</div>
+
+<script>
+(() => {
+  const arena = document.getElementById("arena");
+  const player = document.getElementById("player");
+  const scoreEl = document.getElementById("score");
+  const bestEl = document.getElementById("best");
+  const message = document.getElementById("message");
+  const startBtn = document.getElementById("start");
+  const leftBtn = document.getElementById("left");
+  const rightBtn = document.getElementById("right");
+
+  let x = 0;
+  let running = false;
+  let score = 0;
+  let speed = 2.5;
+  let last = 0;
+  let spawnTimer = 0;
+  let animationFrame = 0;
+  let enemies = [];
+  let keys = {};
+  let best = 0;
+
+  function reset() {
+    enemies.forEach(e => e.el.remove());
+    enemies = [];
+    score = 0;
+    speed = 2.5;
+    spawnTimer = 0;
+    x = (arena.clientWidth - 42) / 2;
+    player.style.left = x + "px";
+    scoreEl.textContent = "0";
+    message.textContent = "";
+    message.style.display = "none";
+  }
+
+  function endGame() {
+    running = false;
+    cancelAnimationFrame(animationFrame);
+
+    message.innerHTML =
+      "GAME OVER<br>" +
+      '<span style="font-size:15px;font-weight:600">' +
+      "점수: " + Math.floor(score) + " · START로 다시 도전" +
+      "</span>";
+
+    message.style.display = "flex";
+
+    if (score > best) {
+      best = Math.floor(score);
+      bestEl.textContent = best;
+    }
+  }
+
+  function collision(a, b) {
+    return (
+      a.left < b.right &&
+      a.right > b.left &&
+      a.top < b.bottom &&
+      a.bottom > b.top
+    );
+  }
+
+  function spawnEnemy() {
+    const el = document.createElement("div");
+    el.className = "enemy";
+
+    const enemyX = Math.random() * (arena.clientWidth - 34);
+
+    el.style.left = enemyX + "px";
+    el.style.top = "-40px";
+
+    arena.appendChild(el);
+
+    enemies.push({
+      el: el,
+      x: enemyX,
+      y: -40
+    });
+  }
+
+  function gameLoop(time) {
+    if (!running) return;
+
+    const dt = Math.min(32, time - last || 16);
+    last = time;
+
+    spawnTimer += dt;
+
+    if (spawnTimer > Math.max(260, 720 - score * 2)) {
+      spawnTimer = 0;
+      spawnEnemy();
+    }
+
+    speed += dt * 0.000035;
+    score += dt * 0.01;
+    scoreEl.textContent = Math.floor(score);
+
+    const playerRect = {
+      left: x,
+      top: arena.clientHeight - 60,
+      right: x + 42,
+      bottom: arena.clientHeight - 18
+    };
+
+    for (let i = enemies.length - 1; i >= 0; i--) {
+      const enemy = enemies[i];
+
+      enemy.y += speed * dt / 16;
+      enemy.el.style.top = enemy.y + "px";
+
+      const enemyRect = {
+        left: enemy.x,
+        top: enemy.y,
+        right: enemy.x + 34,
+        bottom: enemy.y + 34
+      };
+
+      if (collision(playerRect, enemyRect)) {
+        endGame();
+        return;
+      }
+
+      if (enemy.y > arena.clientHeight) {
+        enemy.el.remove();
+        enemies.splice(i, 1);
+      }
+    }
+
+    animationFrame = requestAnimationFrame(gameLoop);
+  }
+
+  // 플레이어 이동 속도: 기존 18의 절반인 9
+  function move(direction) {
+    if (!running) return;
+
+    x += direction * 9;
+    x = Math.max(0, Math.min(arena.clientWidth - 42, x));
+
+    player.style.left = x + "px";
+  }
+
+  function startGame() {
+    reset();
+    running = true;
+    startBtn.textContent = "RESTART";
+    last = performance.now();
+    animationFrame = requestAnimationFrame(gameLoop);
+  }
+
+  startBtn.addEventListener("click", startGame);
+
+  leftBtn.addEventListener("pointerdown", () => move(-1));
+  rightBtn.addEventListener("pointerdown", () => move(1));
+
+  document.addEventListener("keydown", e => {
+    const key = e.key.toLowerCase();
+
+    keys[key] = true;
+
+    if (["arrowleft", "arrowright", "a", "d", " "].includes(key)) {
+      e.preventDefault();
+    }
+
+    if (key === " " && !running) {
+      startGame();
+    }
+  });
+
+  document.addEventListener("keyup", e => {
+    keys[e.key.toLowerCase()] = false;
+  });
+
+  function keyboardLoop() {
+    if (running) {
+      if (keys["arrowleft"] || keys["a"]) move(-1);
+      if (keys["arrowright"] || keys["d"]) move(1);
+    }
+
+    requestAnimationFrame(keyboardLoop);
+  }
+
+  bestEl.textContent = best;
+  keyboardLoop();
+})();
+</script>
+
+</body>
+</html>
